@@ -10,7 +10,7 @@
         <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
         <link rel="stylesheet" href="css/qgis2web.css">
         <link rel="stylesheet" href="css/fontawesome-all.min.css">
-        <link rel="stylesheet" href="https://unpkg.com/leaflet.pm@latest/dist/leaflet.pm.css" />
+		<link rel="stylesheet" href="https://unpkg.com/leaflet.pm@latest/dist/leaflet.pm.css">
         <style>
         html, body, #map {
             width: 100%;
@@ -20,19 +20,12 @@
         }
         </style>
         <title></title>
-    
-<style id="pm-marker-css">
-/* While placing a marker, make all interactive vector paths ignore pointer events */
-.pm-placing-marker .leaflet-interactive { pointer-events: none !important; }
-</style>
-
-</head>
+    </head>
     <body>
         <div id="map">
         </div>
         <script src="js/qgis2web_expressions.js"></script>
         <script src="js/leaflet.js"></script>
-        <script src="https://unpkg.com/leaflet.pm@latest/dist/leaflet.pm.min.js"></script>
         <script src="js/L.Control.Layers.Tree.min.js"></script>
         <script src="js/leaflet.rotatedMarker.js"></script>
         <script src="js/leaflet.pattern.js"></script>
@@ -75,6 +68,7 @@
         <script src="data/38018tracks_33.js"></script>
         <script src="data/38118tracks_34.js"></script>
         <script src="data/Orlik_20172022_35.js"></script>
+		<script src="https://unpkg.com/leaflet.pm@latest/dist/leaflet.pm.min.js"></script>
         <script>
         var map = L.map('map', {
             zoomControl:true, maxZoom:28, minZoom:1
@@ -2634,242 +2628,136 @@
         });
         bounds_group.addLayer(layer_Orlik_20172022_35);
         map.addLayer(layer_Orlik_20172022_35);
-        // === Leaflet.pm minimal "Add marker" + persistence for Orlik_20172022_35 ===
-        // Add only the "add marker" control; hide cutting/edit/removal tools
-        if (map.pm && typeof map.pm.addControls === 'function') {
-            
-// Normalize toolbar: remove any existing controls first
-if (map.pm && typeof map.pm.removeControls === 'function') {
-  map.pm.removeControls();
-}
-// Add ONLY the Draw Marker control; disable everything else explicitly
-if (map.pm && typeof map.pm.addControls === 'function') {
-  map.pm.addControls({
-    position: 'topleft',
-    drawMarker: true,
-    drawCircleMarker: false,
-    drawPolyline: false,
-    drawPolygon: false,
-    drawRectangle: false,
-    drawCircle: false,
-    editMode: false,
-    dragMode: false,
-    cutPolygon: false,
-    removalMode: false,
-    rotateMode: false
-  });
-}
-// In case some other script adds controls later, re-assert our minimal toolbar at the next tick
-setTimeout(function(){
-  if (map.pm && typeof map.pm.removeControls === 'function') {
-    map.pm.removeControls();
-    map.pm.addControls({
-      position: 'topleft',
-      drawMarker: true,
-      drawCircleMarker: false,
-      drawPolyline: false,
-      drawPolygon: false,
-      drawRectangle: false,
-      drawCircle: false,
-      editMode: false,
-      dragMode: false,
-      cutPolygon: false,
-      removalMode: false,
-      rotateMode: false
-    });
-  }
-}, 0);
+		
+		// --- Add a simple "Add marker" button via Leaflet.pm ---
+		map.pm.addControls({
+		  position: 'topleft',
+		  drawMarker: true,
+		  drawPolyline: false,
+		  drawPolygon: false,
+		  editMode: false,
+		  dragMode: false,
+		  removalMode: false
+		});
 
-        }
+		// Make sure the Orlik layer is editable by Leaflet.pm
+		if (layer_Orlik_20172022_35.pm) {
+		  layer_Orlik_20172022_35.pm.setOptions({ pmIgnore: false });
+		}
 
-        // Allow the Orlik layer to be edited by Leaflet.pm
-        if (layer_Orlik_20172022_35.pm && typeof layer_Orlik_20172022_35.pm.setOptions === 'function') {
-            layer_Orlik_20172022_35.pm.setOptions({ pmIgnore: false });
-        }
+		// ---- Minimal persistence: auto-save to localStorage ----
+		const ORLIK_LS_KEY = 'orlik_edits_v1';
 
-        // ---- Persistence to localStorage ----
-        const ORLIK_LS_KEY = 'orlik_edits_v1';
+		// Small UUID helper (for tagging features)
+		function uuid() {
+		  return (window.crypto && crypto.randomUUID)
+			? crypto.randomUUID()
+			: String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+		}
 
-        function uuid() {
-            return (window.crypto && crypto.randomUUID)
-                ? crypto.randomUUID()
-                : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
-        }
+		// Collect only user-added Point features from the Orlik layer
+		function collectUserMarkers() {
+		  const features = [];
+		  layer_Orlik_20172022_35.eachLayer(function (lyr) {
+			if (typeof lyr.toGeoJSON !== 'function') return;
+			const f = lyr.toGeoJSON();
+			if (!f || f.type !== 'Feature' || !f.geometry) return;
+			const p = f.properties || {};
+			if (p._origin === 'user' && f.geometry.type === 'Point') {
+			  features.push(f);
+			}
+		  });
+		  return { type: 'FeatureCollection', features };
+		}
 
-        function collectUserMarkers() {
-            const features = [];
-            layer_Orlik_20172022_35.eachLayer(function (lyr) {
-                if (typeof lyr.toGeoJSON !== 'function') return;
-                const f = lyr.toGeoJSON();
-                if (!f || f.type !== 'Feature' || !f.geometry) return;
-                const p = f.properties || {};
-                if (p._origin === 'user' && f.geometry.type === 'Point') {
-                    features.push(f);
-                }
-            });
-            return { type: 'FeatureCollection', features };
-        }
+		function saveToLocal() {
+		  try {
+			const fc = collectUserMarkers();
+			localStorage.setItem(ORLIK_LS_KEY, JSON.stringify(fc));
+		  } catch (e) { console.warn('Save failed:', e); }
+		}
 
-        function saveToLocal() {
-            try {
-                const fc = collectUserMarkers();
-                localStorage.setItem(ORLIK_LS_KEY, JSON.stringify(fc));
-                console.log('[orlik] saved', fc);
-            } catch (e) { console.warn('[orlik] save failed:', e); }
-        }
+		function loadFromLocal() {
+		  try {
+			const txt = localStorage.getItem(ORLIK_LS_KEY);
+			if (!txt) return;
+			const fc = JSON.parse(txt);
+			// Recreate as draggable Markers (change if you want)
+			L.geoJSON(fc, {
+			  pointToLayer: (feat, latlng) => L.marker(latlng),
+			  onEachFeature: (feat, lyr) => { lyr.feature = feat; }
+			}).eachLayer(lyr => layer_Orlik_20172022_35.addLayer(lyr));
+		  } catch (e) { console.warn('Load edits failed:', e); }
+		}
 
-        function loadFromLocal() {
-            try {
-                const txt = localStorage.getItem(ORLIK_LS_KEY);
-                if (!txt) return;
-                const fc = JSON.parse(txt);
-                L.geoJSON(fc, {
-                    pointToLayer: (feat, latlng) => L.marker(latlng),
-                    onEachFeature: (feat, lyr) => { lyr.feature = feat; }
-                }).eachLayer(lyr => layer_Orlik_20172022_35.addLayer(lyr));
-                console.log('[orlik] loaded', fc);
-            } catch (e) { console.warn('[orlik] load failed:', e); }
-        }
+		function clearEdits() {
+		  // remove only user-origin markers from the map
+		  const toRemove = [];
+		  layer_Orlik_20172022_35.eachLayer(lyr => {
+			if (typeof lyr.toGeoJSON !== 'function') return;
+			const f = lyr.toGeoJSON();
+			if (f && f.properties && f.properties._origin === 'user') {
+			  toRemove.push(lyr);
+			}
+		  });
+		  toRemove.forEach(lyr => layer_Orlik_20172022_35.removeLayer(lyr));
+		  localStorage.removeItem(ORLIK_LS_KEY);
+		}
 
-        function clearEdits() {
-            const toRemove = [];
-            layer_Orlik_20172022_35.eachLayer(lyr => {
-                if (typeof lyr.toGeoJSON !== 'function') return;
-                const f = lyr.toGeoJSON();
-                if (f && f.properties && f.properties._origin === 'user') {
-                    toRemove.push(lyr);
-                }
-            });
-            toRemove.forEach(lyr => layer_Orlik_20172022_35.removeLayer(lyr));
-            localStorage.removeItem(ORLIK_LS_KEY);
-            console.log('[orlik] cleared');
-        }
+		function downloadEdits() {
+		  const fc = collectUserMarkers();
+		  const blob = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' });
+		  const url = URL.createObjectURL(blob);
+		  const a = document.createElement('a');
+		  a.href = url;
+		  a.download = 'Orlik_20172022_35_edits.geojson';
+		  a.click();
+		  URL.revokeObjectURL(url);
+		}
 
-        function downloadEdits() {
-            const fc = collectUserMarkers();
-            const blob = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'Orlik_20172022_35_edits.geojson';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+		// When a new marker is created, add to Orlik layer, tag it, and save
+		map.on('pm:create', function (e) {
+		  if (e.shape !== 'Marker') return;
+		  e.layer.feature = {
+			type: 'Feature',
+			properties: { _origin: 'user', id: uuid() }
+		  };
+		  layer_Orlik_20172022_35.addLayer(e.layer);
+		  saveToLocal();
+		});
 
-        // Hook creation: add to Orlik layer, tag, and save
-        map.on('pm:create', function (e) {
-            if (e.shape !== 'Marker') return;
-            e.layer.feature = {
-                type: 'Feature',
-                properties: { _origin: 'user', id: uuid() }
-            };
-            layer_Orlik_20172022_35.addLayer(e.layer);
-            saveToLocal();
-        });
+		// Load saved markers on startup
+		loadFromLocal();
 
-        // Load persisted markers now
-        loadFromLocal();
+		// Tiny 2-button control: Download edits / Clear saved edits
+		const SaveControl = L.Control.extend({
+		  options: { position: 'topleft' },
+		  onAdd: function () {
+			const div = L.DomUtil.create('div', 'leaflet-bar');
+			div.style.background = '#fff';
+			div.style.padding = '0 4px';
 
-        // Tiny Save/Clear control
-        const SaveControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function () {
-                const div = L.DomUtil.create('div', 'leaflet-bar');
-                div.style.background = '#fff';
-                div.style.padding = '0 4px';
+			const btnDownload = L.DomUtil.create('a', '', div);
+			btnDownload.href = '#';
+			btnDownload.title = 'Download edits (.geojson)';
+			btnDownload.innerHTML = '⬇';
 
-                const btnDownload = L.DomUtil.create('a', '', div);
-                btnDownload.href = '#';
-                btnDownload.title = 'Download edits (.geojson)';
-                btnDownload.innerHTML = '⬇';
+			const btnClear = L.DomUtil.create('a', '', div);
+			btnClear.href = '#';
+			btnClear.title = 'Clear saved edits';
+			btnClear.innerHTML = '✖';
 
-                const btnClear = L.DomUtil.create('a', '', div);
-                btnClear.href = '#';
-                btnClear.title = 'Clear saved edits';
-                btnClear.innerHTML = '✖';
+			L.DomEvent.on(btnDownload, 'click', L.DomEvent.stop)
+					  .on(btnDownload, 'click', downloadEdits);
+			L.DomEvent.on(btnClear, 'click', L.DomEvent.stop)
+					  .on(btnClear, 'click', clearEdits);
 
-                L.DomEvent.on(btnDownload, 'click', L.DomEvent.stop)
-                          .on(btnDownload, 'click', downloadEdits);
-                L.DomEvent.on(btnClear, 'click', L.DomEvent.stop)
-                          .on(btnClear, 'click', clearEdits);
+			return div;
+		  }
+		});
+		map.addControl(new SaveControl());
 
-                return div;
-            }
-        });
-        map.addControl(new SaveControl());
-        
-        // --- Prevent polygon popups while placing markers (so clicks drop markers) ---
-        function _setOverlayPointerEvents(disable) {
-            try {
-                var pane = map.getPanes && map.getPanes().overlayPane;
-                if (pane) pane.style.pointerEvents = disable ? 'none' : '';
-            } catch (e) { console.warn('[orlik] pointer-events toggle failed:', e); }
-        }
-        map.on('pm:drawstart', function(e){ if (e.shape === 'Marker') _setOverlayPointerEvents(true); });
-        map.on('pm:drawend',   function(e){ if (e.shape === 'Marker') _setOverlayPointerEvents(false); });
-        map.on('pm:globaldrawmodetoggled', function(e){
-            if (e.shape === 'Marker') _setOverlayPointerEvents(!!e.enabled);
-        });
-        // --- End polygon popup suppression ---
-
-
-        // --- Robust: block clicks on ALL vector panes while placing markers ---
-        function _getVectorPanes() {
-            const panes = [];
-            try {
-                const mp = map.getPanes ? map.getPanes() : {};
-                for (const k in mp) {
-                    const el = mp[k];
-                    if (!el || !el.className) continue;
-                    const id = el.id || '';
-                    const cls = el.className;
-                    // Skip non-vector panes
-                    if (/leaflet-(tile|marker|popup|tooltip|shadow)-pane/.test(cls)) continue;
-                    // Include overlayPane && any custom qgis2web panes (id starting with "pane_")
-                    if (k === 'overlayPane' || 'leaflet-overlay-pane' in cls || id.startsWith('pane_')) {
-                        panes.push(el);
-                    }
-                }
-            } catch (e) { console.warn('[orlik] getVectorPanes failed', e); }
-            return panes;
-        }
-        function _blockVectorClicks(block) {
-            const panes = _getVectorPanes();
-            panes.forEach(function(el){ el.style.pointerEvents = block ? 'none' : ''; });
-        }
-        function _markerMode(block) { _blockVectorClicks(!!block); }
-
-        // Hook every relevant Leaflet.pm event
-        map.on('pm:drawstart', function(e){ if (e.shape === 'Marker') _markerMode(true); });
-        map.on('pm:drawend',   function(e){ if (e.shape === 'Marker') _markerMode(false); });
-        map.on('pm:globaldrawmodetoggled', function(e){
-            if (!e || e.shape === 'Marker') _markerMode(!!e.enabled);
-        });
-        map.on('pm:buttonclick', function(e){
-            if (e && e.btnName === 'drawMarker') _markerMode(!!e.enabled);
-        });
-        // --- End robust blocking ---
-
-
-// --- CSS-based suppression: disable clicks on all leaflet-interactive paths while placing Marker ---
-(function(){
-  try {
-    var _el = map.getContainer();
-    function _markerMode(on){ if (_el) _el.classList.toggle('pm-placing-marker', !!on); }
-    map.on('pm:drawstart', function(e){ if (e.shape === 'Marker') _markerMode(true); });
-    map.on('pm:drawend',   function(e){ if (e.shape === 'Marker') _markerMode(false); });
-    map.on('pm:globaldrawmodetoggled', function(e){
-      if (!e || e.shape === 'Marker') _markerMode(!!e.enabled);
-    });
-    map.on('pm:buttonclick', function(e){
-      if (e && e.btnName === 'drawMarker') _markerMode(!!e.enabled);
-    });
-  } catch (err) { console.warn('[orlik] CSS suppression init failed', err); }
-})();
-// --- End CSS-based suppression ---
-
-// === End persistence block ===
-
+		
         var baseMaps = {};
         var overlaysTree = [
             {label: 'Orlik_2017-2022<br /><table><tr><td style="text-align: center;"><img src="legend/Orlik_20172022_35_echinosperma0.png" /></td><td>echinosperma</td></tr><tr><td style="text-align: center;"><img src="legend/Orlik_20172022_35_kurkae1.png" /></td><td>kurkae</td></tr><tr><td style="text-align: center;"><img src="legend/Orlik_20172022_35_nic2.png" /></td><td>nic</td></tr><tr><td style="text-align: center;"><img src="legend/Orlik_20172022_35_3.png" /></td><td></td></tr></table>', layer: layer_Orlik_20172022_35},
