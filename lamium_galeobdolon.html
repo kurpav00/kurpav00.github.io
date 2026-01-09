@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lamium galeobdolon pozorování</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 1em; background-color: #006400; color: yellow;}
+    h1 { font-size: 1em; margin: 0;}
+    ul { list-style-type: none; padding: 0; margin: 0; }
+    li { padding: 0 0; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <h1><i>Lamium galeobdolon</i> pozorování</h1>
+  <ul id="results"></ul>
+
+  <script>
+    // Base query (no ident_user_id yet)
+    const baseAPI = "https://api.inaturalist.org/v1/observations?quality_grade=needs_id,research"
+      + "&iconic_taxa=Plantae,unknown"
+      + "&place_id=8264"
+      + "&taxon_id=204339"
+      + "&hrank=subspecies"
+      + "&per_page=1"; // only need counts
+
+    // Users to check
+    const users = [
+      //"duch",
+      "kurpav00",
+      "orsejka",
+      "fanylamla",
+      "jandolezal"
+    ];
+
+    const fetchCount = async (username) => {
+      const url = `${baseAPI}&ident_user_id=${encodeURIComponent(username)}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        return { user: username, count: 0, error: true };
+      }
+      const data = await response.json();
+      return { user: username, count: data.total_results };
+    };
+
+    const run = async () => {
+      const promises = users.map(u => fetchCount(u));
+      const results = await Promise.all(promises);
+
+      // Sort from highest count to lowest
+      results.sort((a, b) => b.count - a.count);
+
+      const list = document.getElementById("results");
+      results.forEach(r => {
+        const li = document.createElement("li");
+        li.textContent = `${r.user}: ${r.count} observations`;
+        list.appendChild(li);
+      });
+    };
+
+    run().catch(err => {
+      console.error("Error fetching counts:", err);
+    });
+  </script>
+</body>
+</html>
