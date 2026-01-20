@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Missing species of vascular plants in the iNaturalist observations of a specified user from the Czech Republic</title>
+  <style>
+    :root { --bg:#f7f7f7; --card:#fff; --border:#ddd; --text:#222; --muted:#666; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 2rem; background: var(--bg); color: var(--text); }
+    h1 { margin: 0 0 0.5rem 0; font-size: 1.6rem; line-height: 1.2; }
+    .sub { color: var(--muted); margin-bottom: 1rem; line-height: 1.35; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+    label { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+    input[type="text"] {
+      padding: 0.7rem 0.8rem; /* bigger tap target */
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+
+    button {
+      padding: 0.7rem 0.9rem; /* bigger tap target */
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      cursor: pointer;
+      width: 100%;
+      font-size: 16px;
+    }
+    button:disabled { cursor: not-allowed; opacity: 0.6; }
+
+    .row {
+      display: flex;
+      flex-direction: column; /* mobile-first */
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; color: var(--muted); }
+
+    .grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+
+    /* Larger screens: tighten controls + 2-column layout */
+    @media (min-width: 900px) {
+      body { margin: 2rem; }
+      .row { flex-direction: row; align-items: center; }
+      input[type="text"] { width: min(420px, 100%); }
+      button { width: auto; }
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    table { width: 100%; border-collapse: collapse; min-width: 520px; }
+    th, td {
+      border-bottom: 1px solid #eee;
+      padding: 0.55rem 0.45rem;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    th { font-size: 0.9rem; color: var(--muted); }
+    .right { text-align: right; white-space: nowrap; }
+
+    .pill { display:inline-block; padding: 0.15rem 0.5rem; border:1px solid var(--border); border-radius:999px; color: var(--muted); font-size: 0.85rem; }
+    .error { color: #b00020; }
+    .muted { color: var(--muted); }
+
+    /* Make table scroll nicely on small screens */
+    .tableWrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  </style>
+</head>
+<body>
+  <h1>Missing species of vascular plants in the iNaturalist observations of a specified user from the Czech Republic</h1>
+  <div class="sub">
+    Compares the Tracheophyta species list for <span class="pill">place_id=8264</span>
+    against a user's observations in the same place (species only).
+    <br>
+    Includes all observations: <span class="pill">quality_grade=any</span> <span class="pill">identifications=any</span>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom: 0.75rem;">
+      <label style="flex: 1;">
+        iNaturalist username:
+        <input id="username" type="text" placeholder="e.g., some_user" autocomplete="off" />
+      </label>
+      <button id="runBtn">Run comparison</button>
+    </div>
+
+    <div class="status" id="status">Ready.</div>
+    <div class="error" id="error" style="display:none;"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2 style="margin:0 0 0.5rem 0; font-size:1.2rem;">Summary</h2>
+      <div id="summary" class="muted">No results yet.</div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 0.5rem 0; font-size:1.2rem;">Missing species</h2>
+      <div class="muted" style="margin-bottom:0.5rem;">
+        Species that occur in place 8264 (Tracheophyta) but are not in the user’s Tracheophyta species list in place 8264.
+      </div>
+      <div class="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scientific name</th>
+              <th class="right">Place obs count</th>
+              <th class="right">Taxon ID</th>
+            </tr>
+          </thead>
+          <tbody id="missingBody">
+            <tr><td colspan="3" class="muted">No results yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const PLACE_ID = 8264;
+  const TRACHEOPHYTA_TAXON_ID = 211194;
+  const RANK = "species";
+  const PER_PAGE = 200;
+
+  const INCLUDE_ALL_FILTERS = {
+    quality_grade: "any",
+    identifications: "any",
+    verifiable: "any"
+  };
+
+  const statusEl = document.getElementById("status");
+  const errorEl = document.getElementById("error");
+  const summaryEl = document.getElementById("summary");
+  const missingBody = document.getElementById("missingBody");
+  const runBtn = document.getElementById("runBtn");
+
+  function setStatus(msg) { statusEl.textContent = msg; }
+  function showError(msg) { errorEl.textContent = msg; errorEl.style.display = ""; }
+  function clearError() { errorEl.textContent = ""; errorEl.style.display = "none"; }
+
+  function buildUrl(params) {
+    const u = new URL("https://api.inaturalist.org/v1/observations/species_counts");
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") u.searchParams.set(k, String(v));
+    });
+    return u.toString();
+  }
+
+  async function fetchAllSpeciesCounts(baseParams, labelForStatus) {
+    const all = [];
+    let page = 1;
+
+    while (true) {
+      const url = buildUrl({ ...baseParams, ...INCLUDE_ALL_FILTERS, per_page: PER_PAGE, page });
+      setStatus(`${labelForStatus}\nFetching page ${page}…`);
+
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`${labelForStatus}: HTTP ${resp.status}`);
+
+      const data = await resp.json();
+      const results = data && data.results ? data.results : [];
+      if (results.length === 0) break;
+
+      all.push(...results);
+      page++;
+    }
+    return all;
+  }
+
+  function renderMissingRows(missing) {
+    missingBody.innerHTML = "";
+    if (missing.length === 0) {
+      missingBody.innerHTML = `<tr><td colspan="3" class="muted">None missing 🎉</td></tr>`;
+      return;
+    }
+
+    missing.sort((a, b) => (b.placeCount - a.placeCount) || a.name.localeCompare(b.name));
+
+    const frag = document.createDocumentFragment();
+    for (const row of missing) {
+      const tr = document.createElement("tr");
+
+      const tdName = document.createElement("td");
+      tdName.textContent = row.name;
+
+      const tdCount = document.createElement("td");
+      tdCount.className = "right";
+      tdCount.textContent = row.placeCount.toLocaleString();
+
+      const tdId = document.createElement("td");
+      tdId.className = "right";
+      tdId.textContent = row.taxonId;
+
+      tr.append(tdName, tdCount, tdId);
+      frag.appendChild(tr);
+    }
+    missingBody.appendChild(frag);
+  }
+
+  async function run() {
+    clearError();
+    summaryEl.textContent = "Working…";
+    missingBody.innerHTML = `<tr><td colspan="3" class="muted">Loading…</td></tr>`;
+
+    const username = document.getElementById("username").value.trim();
+    if (!username) {
+      showError("Please enter an iNaturalist username (user_login).");
+      setStatus("Ready.");
+      summaryEl.textContent = "No results yet.";
+      missingBody.innerHTML = `<tr><td colspan="3" class="muted">No results yet.</td></tr>`;
+      return;
+    }
+
+    runBtn.disabled = true;
+
+    try {
+      const placeParams = { place_id: PLACE_ID, taxon_id: TRACHEOPHYTA_TAXON_ID, rank: RANK };
+      const placeRows = await fetchAllSpeciesCounts(placeParams, "Place species list (Tracheophyta, species)");
+
+      const placeById = new Map();
+      for (const r of placeRows) {
+        if (!r || !r.taxon) continue;
+        placeById.set(r.taxon.id, {
+          taxonId: r.taxon.id,
+          name: r.taxon.name,
+          placeCount: r.count || 0
+        });
+      }
+
+      const userParams = { user_login: username, place_id: PLACE_ID, taxon_id: TRACHEOPHYTA_TAXON_ID, rank: RANK };
+      const userRows = await fetchAllSpeciesCounts(userParams, "User species list (Tracheophyta, species, place 8264)");
+
+      const userIds = new Set();
+      for (const r of userRows) {
+        if (r && r.taxon && r.taxon.id) userIds.add(r.taxon.id);
+      }
+
+      const missing = [];
+      for (const [taxonId, info] of placeById.entries()) {
+        if (!userIds.has(taxonId)) missing.push(info);
+      }
+
+      renderMissingRows(missing);
+
+      summaryEl.innerHTML = `
+        <div>Place checklist species (Tracheophyta, place 8264): <b>${placeById.size.toLocaleString()}</b></div>
+        <div>User species (Tracheophyta, place 8264): <b>${userIds.size.toLocaleString()}</b></div>
+        <div>Missing species: <b>${missing.length.toLocaleString()}</b></div>
+      `;
+
+      setStatus("Done.");
+    } catch (err) {
+      console.error(err);
+      showError(err.message || String(err));
+      setStatus("Failed.");
+      summaryEl.textContent = "Error.";
+      missingBody.innerHTML = `<tr><td colspan="3" class="muted">Error.</td></tr>`;
+    } finally {
+      runBtn.disabled = false;
+    }
+  }
+
+  runBtn.addEventListener("click", run);
+</script>
+</body>
+</html>
